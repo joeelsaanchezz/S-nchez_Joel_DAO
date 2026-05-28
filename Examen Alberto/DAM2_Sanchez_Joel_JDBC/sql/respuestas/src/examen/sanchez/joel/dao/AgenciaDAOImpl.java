@@ -63,7 +63,6 @@ public class AgenciaDAOImpl extends AgenciaDAO {
     public Agencia find(String idAgencia) {
         motorSQL.connect();
         Agencia a = null;
-        // ADAPTAR: nombre de tabla
         motorSQL.prepare("SELECT * FROM AGENCIAS WHERE ID_AGENCIA = ?");
         try {
             motorSQL.getPs().setString(1, idAgencia);
@@ -71,35 +70,32 @@ public class AgenciaDAOImpl extends AgenciaDAO {
             if (rs.next()) {
                 a = new Agencia();
                 a.setIdAgencia(rs.getString("ID_AGENCIA"));
-                a.setTitulo(rs.getString("NOMBRE"));
-                a.setDirector(rs.getString("PAIS"));
-                a.setGenero(rs.getString("FECHA_FUNDACION"));
-                a.setAnyo(rs.getInt("sanchezjoel"));
+                a.setNombre(rs.getString("NOMBRE"));
+                a.setPais(rs.getString("PAIS"));
+                a.setFechaFundacion(rs.getString("FECHA_FUNDACION"));
+                a.setSanchezJoel(rs.getString("sanchezjoel"));
             }
         } catch (Exception e) {
             System.out.println(e.getMessage());
         } finally {
             motorSQL.close();
         }
-        return p;
+        return a;
     }
 
     // ===================== UPDATE =====================
     @Override
-    public void update(int id, Pelicula p) {
+    public void update(String idAgencia, Agencia a) {
         motorSQL.connect();
-        // ADAPTAR: nombre de tabla y columnas
-        String sql = "UPDATE peliculas SET titulo=?, director=?,"
-                   + " genero=?, anyo=?, duracion=? WHERE id=?";
+        String sql = "UPDATE AGENCIAS SET NOMBRE=?, PAIS=?,"
+                   + " FECHA_FUNDACION=?, sanchezjoel=? WHERE ID_AGENCIA=?";
         motorSQL.prepare(sql);
         try {
-            motorSQL.getPs().setString(1, p.getTitulo());
-            motorSQL.getPs().setString(2, p.getDirector());
-            motorSQL.getPs().setString(3, p.getGenero());
-            motorSQL.getPs().setInt(4, p.getAnyo());
-            motorSQL.getPs().setInt(5, p.getDuracion());
-            // El id siempre va al final en el UPDATE
-            motorSQL.getPs().setInt(6, id);
+            motorSQL.getPs().setString(1, a.getNombre());
+            motorSQL.getPs().setString(2, a.getPais());
+            motorSQL.getPs().setString(3, a.getFechaFundacion());
+            motorSQL.getPs().setString(4, a.getSanchezJoel());
+            motorSQL.getPs().setString(5, idAgencia);
             motorSQL.executeUpdate();
         } catch (Exception e) {
             System.out.println(e.getMessage());
@@ -110,12 +106,11 @@ public class AgenciaDAOImpl extends AgenciaDAO {
 
     // ===================== DELETE =====================
     @Override
-    public void delete(int id) {
+    public void delete(String idAgencia) {
         motorSQL.connect();
-        // ADAPTAR: nombre de tabla
-        motorSQL.prepare("DELETE FROM peliculas WHERE id = ?");
+        motorSQL.prepare("DELETE FROM AGENCIAS WHERE ID_AGENCIA = ?");
         try {
-            motorSQL.getPs().setInt(1, id);
+            motorSQL.getPs().setString(1, idAgencia);
             motorSQL.executeUpdate();
         } catch (Exception e) {
             System.out.println(e.getMessage());
@@ -124,25 +119,24 @@ public class AgenciaDAOImpl extends AgenciaDAO {
         }
     }
 
-    // ================ FIND BY GENERO ================
+    // ================ FIND BY PAIS ================
     @Override
-    public ArrayList<Pelicula> findByGenero(String genero) {
+    public ArrayList<Agencia> findByPais(String pais) {
         motorSQL.connect();
-        ArrayList<Pelicula> lista = new ArrayList<>();
+        ArrayList<Agencia> lista = new ArrayList<>();
         // ADAPTAR: nombre de tabla y columna de filtro
-        motorSQL.prepare("SELECT * FROM peliculas WHERE genero = ?");
+        motorSQL.prepare("SELECT * FROM AGENCIAS WHERE PAIS = ?");
         try {
-            motorSQL.getPs().setString(1, genero);
+            motorSQL.getPs().setString(1, pais);
             ResultSet rs = motorSQL.executeQuery();
             while (rs.next()) {
-                Pelicula p = new Pelicula();
-                p.setId(rs.getInt("id"));
-                p.setTitulo(rs.getString("titulo"));
-                p.setDirector(rs.getString("director"));
-                p.setGenero(rs.getString("genero"));
-                p.setAnyo(rs.getInt("anyo"));
-                p.setDuracion(rs.getInt("duracion"));
-                lista.add(p);
+                Agencia a = new Agencia();
+                a.setIdAgencia(rs.getString("ID_AGENCIA"));
+                a.setNombre(rs.getString("NOMBRE"));
+                a.setPais(rs.getString("PAIS"));
+                a.setFechaFundacion(rs.getString("FECHA_FUNDACION"));
+                a.setSanchezJoel(rs.getString("sanchezjoel"));
+                lista.add(a);
             }
         } catch (Exception e) {
             System.out.println(e.getMessage());
@@ -154,23 +148,22 @@ public class AgenciaDAOImpl extends AgenciaDAO {
 
     // ================ FIND BY DIRECTOR ================
     @Override
-    public ArrayList<Pelicula> findByDirector(String director) {
+    public ArrayList<Agencia> findByfechaFundacion(String fechaFundacion) {
         motorSQL.connect();
-        ArrayList<Pelicula> lista = new ArrayList<>();
+        ArrayList<Agencia> lista = new ArrayList<>();
         // ADAPTAR: nombre de tabla y columna de filtro
-        motorSQL.prepare("SELECT * FROM peliculas WHERE director = ?");
+        motorSQL.prepare("SELECT * FROM AGENCIAS WHERE FECHA_FUNDACION = ?");
         try {
-            motorSQL.getPs().setString(1, director);
+            motorSQL.getPs().setString(1, fechaFundacion);
             ResultSet rs = motorSQL.executeQuery();
             while (rs.next()) {
-                Pelicula p = new Pelicula();
-                p.setId(rs.getInt("id"));
-                p.setTitulo(rs.getString("titulo"));
-                p.setDirector(rs.getString("director"));
-                p.setGenero(rs.getString("genero"));
-                p.setAnyo(rs.getInt("anyo"));
-                p.setDuracion(rs.getInt("duracion"));
-                lista.add(p);
+                Agencia a = new Agencia();
+                a.setIdAgencia(rs.getString("ID_AGENCIA"));
+                a.setNombre(rs.getString("NOMBRE"));
+                a.setPais(rs.getString("PAIS"));
+                a.setFechaFundacion(rs.getString("FECHA_FUNDACION"));
+                a.setSanchezJoel(rs.getString("sanchezjoel"));
+                lista.add(a);
             }
         } catch (Exception e) {
             System.out.println(e.getMessage());
@@ -180,21 +173,9 @@ public class AgenciaDAOImpl extends AgenciaDAO {
         return lista;
     }
 
-    @Override
-    public ArrayList<Agencia> findByPais(String pais) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'findByPais'");
-    }
 
-    @Override
-    public ArrayList<Agencia> findByfechaFundacion(String director) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'findByfechaFundacion'");
-    }
 
-    @Override
-    public void update(int id, Agencia obj) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'update'");
-    }
+
+
+
 }

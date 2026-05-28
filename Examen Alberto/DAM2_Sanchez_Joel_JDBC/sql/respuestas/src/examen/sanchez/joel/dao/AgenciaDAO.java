@@ -14,5 +14,5 @@ public abstract class AgenciaDAO extends AbstractDAO<Agencia> {
 
     // ADAPTAR: métodos específicos de tu temática
     public abstract ArrayList<Agencia> findByPais(String pais);
-    public abstract ArrayList<Agencia> findByfechaFundacion(String director);
+    public abstract ArrayList<Agencia> findByfechaFundacion(String fechaFundacion);
 }

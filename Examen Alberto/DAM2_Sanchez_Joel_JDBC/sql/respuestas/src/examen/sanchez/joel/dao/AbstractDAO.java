@@ -12,10 +12,10 @@ public abstract class AbstractDAO<T> {
 
     // Operaciones CRUD comunes a cualquier tabla
     public abstract void add(T obj);
-    public abstract T find(int id);
+    public abstract T find(String id);
     public abstract ArrayList<T> findAll();
-    public abstract void update(int id, T obj);
-    public abstract void delete(int id);
+    public abstract void update(String id, T obj);
+    public abstract void delete(String id);
 
     // Método de verificación de conexión
     public void check() {
