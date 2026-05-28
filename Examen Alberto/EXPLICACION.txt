@@ -1,0 +1,695 @@
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║              GUÍA COMPLETA DEL PATRÓN DAO EN JAVA + JDBC                ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+Este archivo explica paso a paso qué es el patrón DAO, para qué sirve,
+cómo está organizado el proyecto y cómo funciona cada pieza.
+Está pensado para entenderlo aunque sea la primera vez que lo ves.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ÍNDICE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. ¿Qué problema resuelve el patrón DAO?
+  2. ¿Qué es JDBC?
+  3. Estructura del proyecto
+  4. Capa 1 — Los Beans (los datos)
+  5. Capa 2 — El Motor SQL (la conexión)
+  6. Capa 3 — La Fábrica (MotorFactory)
+  7. Capa 4 — La Interfaz DAO (el contrato)
+  8. Capa 5 — AbstractDAO (el esqueleto)
+  9. Capa 6 — Los DAOImpl (el SQL real)
+  10. Capa 7 — Los Main (cómo se usa todo)
+  11. Flujo completo de una operación
+  12. Las consultas SQL explicadas
+  13. ¿Qué es un JOIN?
+  14. ¿Qué es una Foreign Key?
+  15. Resumen visual de la arquitectura
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1. ¿QUÉ PROBLEMA RESUELVE EL PATRÓN DAO?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Imagina que tienes una aplicación de películas. Sin organización, tu código
+quedaría así (todo mezclado en un mismo sitio):
+
+  ┌──────────────────────────────────────────────┐
+  │  public void mostrarPeliculas() {            │
+  │    Connection conn = ...abrir conexión...    │  ← gestión de BD
+  │    Statement st = conn.createStatement();    │  ← gestión de BD
+  │    ResultSet rs = st.executeQuery(           │
+  │        "SELECT * FROM PELICULAS"             │  ← SQL mezclado
+  │    );                                        │
+  │    while (rs.next()) {                       │
+  │        System.out.println(rs.getString(1));  │  ← lógica de negocio
+  │    }                                         │
+  │    conn.close();                             │  ← gestión de BD
+  │  }                                           │
+  └──────────────────────────────────────────────┘
+
+Problemas de hacerlo así:
+  - Si cambias de PostgreSQL a MySQL, tienes que buscar y cambiar
+    el SQL en cientos de sitios distintos.
+  - Si hay un error en la conexión, está escondido entre lógica de negocio.
+  - El código es difícil de leer, mantener y reutilizar.
+
+El patrón DAO (Data Access Object) soluciona esto SEPARANDO el código:
+
+  ┌─────────────────────┐       ┌─────────────────────┐
+  │   Lógica de negocio │       │   Acceso a datos    │
+  │   (Main, Servicios) │  ───► │   (DAOImpl)         │
+  │                     │       │                     │
+  │   "Dame las         │       │   Aquí está el SQL  │
+  │    películas"       │       │   y la conexión     │
+  └─────────────────────┘       └─────────────────────┘
+
+Cada parte hace UNA SOLA COSA. Eso se llama "separación de responsabilidades".
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  2. ¿QUÉ ES JDBC?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+JDBC = Java Database Connectivity.
+
+Es el "puente" estándar que tiene Java para hablar con cualquier base de
+datos (PostgreSQL, MySQL, Oracle, MariaDB...).
+
+Sin JDBC, Java no sabe cómo comunicarse con una base de datos.
+Con JDBC, Java puede enviar SQL y recibir resultados.
+
+Los pasos básicos de JDBC son siempre los mismos:
+
+  PASO 1 → Cargar el driver
+            Class.forName("org.postgresql.Driver")
+            Esto le dice a Java qué "traductor" usar para PostgreSQL.
+
+  PASO 2 → Abrir la conexión
+            Connection conn = DriverManager.getConnection(url, user, password)
+            Abre la comunicación con el servidor de BD.
+
+  PASO 3 → Preparar la sentencia SQL
+            PreparedStatement ps = conn.prepareStatement("SELECT * FROM ...")
+            Compila el SQL antes de ejecutarlo.
+
+  PASO 4 → Asignar parámetros (si los hay)
+            ps.setString(1, "Matrix")
+            ps.setInt(2, 1999)
+            Rellena los ? del SQL con valores reales.
+
+  PASO 5 → Ejecutar
+            ResultSet rs = ps.executeQuery()   ← para SELECT
+            int filas   = ps.executeUpdate()   ← para INSERT/UPDATE/DELETE
+
+  PASO 6 → Leer el resultado (solo para SELECT)
+            while (rs.next()) {
+                String titulo = rs.getString("titulo");
+            }
+
+  PASO 7 → Cerrar todo
+            ps.close();
+            conn.close();
+            MUY IMPORTANTE: si no cierras, la BD se queda sin conexiones.
+
+El proyecto encapsula estos 7 pasos dentro de la clase MotorSQL para
+no tener que repetirlos en cada método del DAO.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  3. ESTRUCTURA DEL PROYECTO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+maven-jdbc-01-2026/
+│
+├── pom.xml                          ← configuración Maven (dependencias)
+│
+└── src/main/java/org/example/
+    │
+    ├── beans/                       ← CAPA 1: los datos
+    │   ├── Pelicula.java
+    │   ├── DetallePelicula.java
+    │   ├── Compra.java
+    │   ├── Cliente.java
+    │   └── Categoria.java
+    │
+    ├── DAO/                         ← CAPAS 2-6: la infraestructura
+    │   ├── MotorSQL.java            ← Capa 2: conexión (abstracta)
+    │   ├── PostgreMotorSQL.java     ← Capa 2: conexión PostgreSQL
+    │   ├── MariaDBMotorSQL.java     ← Capa 2: conexión MariaDB
+    │   ├── MotorFactory.java        ← Capa 3: fábrica de motores
+    │   ├── DAO.java                 ← Capa 4: interfaz (el contrato)
+    │   ├── AbstractDAO.java         ← Capa 5: esqueleto común
+    │   ├── PeliculaDAOImpl.java     ← Capa 6: SQL real de películas
+    │   ├── PeliculasDAO.java        ← Capa 6: versión simplificada (stub)
+    │   └── CompraDAOImpl.java       ← Capa 6: SQL real de compras
+    │
+    ├── Main.java                    ← Capa 7: demo JDBC sin DAO
+    ├── Main2.java                   ← Capa 7: demo con PeliculaDAOImpl
+    └── MainCompras.java             ← Capa 7: demo con CompraDAOImpl
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  4. CAPA 1 — LOS BEANS (los datos)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Un "bean" es una clase Java que representa UNA FILA de una tabla de BD.
+Tiene los mismos campos que la tabla, solo que en Java.
+
+Ejemplo: la tabla PELICULAS tiene estas columnas:
+
+  PELICULAS
+  ┌────┬──────────────────┬──────────────┬──────────┬──────┬──────────┐
+  │ ID │ TITULO           │ DIRECTOR     │ GENERO   │ ANYO │ DURACION │
+  ├────┼──────────────────┼──────────────┼──────────┼──────┼──────────┤
+  │  1 │ Matrix           │ Wachowski    │ Sci-Fi   │ 1999 │ 136      │
+  │  2 │ El Padrino       │ Coppola      │ Drama    │ 1972 │ 175      │
+  └────┴──────────────────┴──────────────┴──────────┴──────┴──────────┘
+
+Y el Bean Pelicula.java tiene exactamente esos mismos campos:
+
+  public class Pelicula {
+      private int    id;
+      private String titulo;
+      private String director;
+      private String genero;
+      private int    anyo;
+      private int    duracion;
+      // + getters y setters
+  }
+
+Cuando el DAO hace un SELECT, lee cada fila del resultado y crea
+un objeto Pelicula por cada fila. Eso se llama "mapear".
+
+  Fila de BD:  [1, "Matrix", "Wachowski", "Sci-Fi", 1999, 136]
+                ↓      ↓           ↓          ↓       ↓     ↓
+  Objeto Java:  id  titulo      director   genero   anyo  duracion
+
+
+BEANS DEL PROYECTO:
+  Pelicula.java        →  tabla PELICULAS
+  DetallePelicula.java →  tabla DETALLE_PELICULAS (datos extra de la película)
+  Compra.java          →  tabla COMPRAS
+  Cliente.java         →  tabla CLIENTES
+  Categoria.java       →  tabla CATEGORIAS (sin implementar aún)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  5. CAPA 2 — EL MOTOR SQL (la conexión)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+El "motor" es el encargado de abrir y cerrar la conexión con la BD,
+y de ejecutar el SQL que le manden. No sabe nada de películas ni compras.
+
+Hay tres clases relacionadas:
+
+  MotorSQL.java (abstracta)
+  ─────────────────────────
+  Define los métodos que todos los motores deben tener:
+    · connect()        → abre la conexión (cada BD lo hace diferente)
+    · prepare(sql)     → compila el SQL en un PreparedStatement
+    · executeQuery()   → ejecuta un SELECT
+    · executeUpdate()  → ejecuta INSERT / UPDATE / DELETE
+    · getPs()          → devuelve el PreparedStatement para asignar ?
+    · close()          → cierra conexión y PreparedStatement
+
+  PostgreMotorSQL.java
+  ────────────────────
+  Extiende MotorSQL. Tiene hardcodeada la URL de PostgreSQL en AWS:
+    URL      = jdbc:postgresql://database-2...rds.amazonaws.com:5432/postgres
+    USER     = postgres
+    PASSWORD = 12345678
+    DRIVER   = org.postgresql.Driver
+
+  Implementa connect() cargando el driver de PostgreSQL y
+  abriendo la conexión con DriverManager.
+
+  MariaDBMotorSQL.java
+  ────────────────────
+  Igual que PostgreMotorSQL pero para MariaDB:
+    URL    = jdbc:mariadb://db-mariadb...rds.amazonaws.com:3306/mariadb
+    DRIVER = org.mariadb.jdbc.Driver
+    PUERTO = 3306 (MariaDB/MySQL usan el 3306, PostgreSQL usa el 5432)
+
+
+¿POR QUÉ SEPARAR EL MOTOR?
+
+  Si el SQL de películas y la conexión estuvieran juntos, para cambiar
+  de PostgreSQL a MariaDB tendrías que tocar PeliculaDAOImpl, CompraDAOImpl
+  y todos los demás DAOs.
+
+  Con el motor separado, SOLO cambias una línea en el Main:
+    MotorFactory.create(MotorFactory.POSTGRE)
+                                      ↓ cambias esto
+    MotorFactory.create(MotorFactory.MARIADB)
+
+  Y todo lo demás funciona igual. Eso es lo que hace buena esta arquitectura.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  6. CAPA 3 — LA FÁBRICA (MotorFactory)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+MotorFactory es simplemente una clase con un método estático create()
+que devuelve el motor que le pidas:
+
+  MotorFactory.create("POSTGRE")  →  devuelve new PostgreMotorSQL()
+  MotorFactory.create("MARIADB")  →  devuelve new MariaDBMotorSQL()
+  MotorFactory.create("ORACLE")   →  lanza error (no implementado)
+
+¿Por qué usar una fábrica en vez de hacer "new PostgreMotorSQL()" directamente?
+
+  Sin fábrica, en cada Main tendrías:
+    new PeliculaDAOImpl(new PostgreMotorSQL())
+    new CompraDAOImpl(new PostgreMotorSQL())
+    new ClienteDAOImpl(new PostgreMotorSQL())
+
+  Si cambias de BD, tienes que cambiar "new PostgreMotorSQL()" en todos
+  los sitios. Con la fábrica, solo cambias la constante en un sitio.
+
+Esto se llama patrón de diseño FACTORY.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  7. CAPA 4 — LA INTERFAZ DAO (el contrato)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DAO.java es una interfaz. Una interfaz en Java es como un contrato:
+dice QUÉ métodos debe tener una clase, pero no CÓMO los implementa.
+
+  public interface DAO<T> {
+      void add(T object);          // INSERT
+      void update(int id, T obj);  // UPDATE
+      void delete(int id);         // DELETE
+      T find(int id);              // SELECT WHERE ID = ?
+      ArrayList<T> findAll();      // SELECT *
+  }
+
+La T entre <> es un genérico: significa "cualquier tipo".
+  DAO<Pelicula>  →  los métodos trabajan con objetos Pelicula
+  DAO<Compra>    →  los métodos trabajan con objetos Compra
+
+Al usar una interfaz, garantizas que TODOS los DAOs tienen
+exactamente los mismos 5 métodos básicos, sin excepción.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  8. CAPA 5 — ABSTRACTDAO (el esqueleto)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AbstractDAO es una clase abstracta que:
+
+  a) Implementa DAO<T> (hereda el contrato)
+  b) Guarda el motor: protected MotorSQL motorSQL
+  c) Tiene el método printError() para imprimir errores
+  d) Añade métodos abstractos propios del dominio de películas
+
+¿Para qué sirve si no implementa el SQL?
+
+  Sin AbstractDAO, tanto PeliculaDAOImpl como CompraDAOImpl tendrían
+  que declarar "protected MotorSQL motorSQL" y el constructor que lo
+  recibe. Eso es código duplicado.
+
+  AbstractDAO lo declara UNA VEZ y todas las subclases lo heredan.
+
+Jerarquía completa:
+
+  DAO<T>  (interfaz: define los 5 métodos)
+    │
+    └── AbstractDAO<T>  (abstracta: añade motorSQL y printError)
+          │
+          └── PeliculaDAOImpl  (concreta: aquí está el SQL real)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  9. CAPA 6 — LOS DAOIMPL (el SQL real)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Aquí está el trabajo de verdad. Cada DAOImpl tiene:
+
+  a) Las sentencias SQL como constantes arriba del todo
+  b) Un constructor que recibe el motor
+  c) Los métodos CRUD
+  d) Consultas avanzadas (findByGenero, findByDirector...)
+  e) Un método privado mapXxx() que convierte una fila en un objeto
+
+
+── PeliculaDAOImpl ────────────────────────────────────────────────────────
+
+  Gestiona la tabla PELICULAS. Sus métodos son:
+
+  check()
+    Verifica que la conexión funciona. Útil para diagnosticar problemas.
+
+  add(Pelicula pelicula)
+    Ejecuta: INSERT INTO PELICULAS (titulo, director, genero, anyo, duracion)
+             VALUES (?, ?, ?, ?, ?)
+    Los 5 ? se rellenan con los valores del objeto pelicula.
+
+  update(int id, Pelicula pelicula)
+    Ejecuta: UPDATE PELICULAS SET titulo=?, director=?, ... WHERE ID=?
+    El último ? es el id para identificar qué fila actualizar.
+
+  delete(int id)
+    Ejecuta: DELETE FROM PELICULAS WHERE ID=?
+
+  find(int id)
+    Ejecuta: SELECT * FROM PELICULAS WHERE ID=?
+    Devuelve UN objeto Pelicula o null si no existe.
+
+  findAll()
+    Ejecuta: SELECT * FROM PELICULAS ORDER BY ID
+    Devuelve una lista con TODAS las películas.
+
+  findByGenero(String genero)
+    Ejecuta: SELECT * FROM PELICULAS WHERE GENERO=? ORDER BY TITULO
+    Devuelve todas las películas de ese género.
+
+  findByDirector(String director)
+    Ejecuta: SELECT * FROM PELICULAS WHERE DIRECTOR=? ORDER BY ANYO DESC
+    Devuelve todas las películas de ese director.
+
+  findDetallePeliculaByPelicula(int idPelicula)
+    Hace un JOIN entre PELICULAS y DETALLE_PELICULAS.
+    Devuelve una Pelicula con su DetallePelicula incluido.
+    (Ver sección 13 para entender qué es un JOIN)
+
+
+── CompraDAOImpl ───────────────────────────────────────────────────────────
+
+  Gestiona la tabla COMPRAS. Sus métodos son:
+
+  add(Compra compra)
+    Ejecuta: INSERT INTO COMPRAS (ID_PELICULA, FECHA, PRECIO, CANTIDAD)
+             VALUES (?, CURRENT_DATE, ?, ?)
+    La fecha se asigna automáticamente a HOY.
+    Si el ID_PELICULA no existe en PELICULAS, PostgreSQL dará error de FK.
+
+  update(int id, Compra compra)
+    Actualiza precio, cantidad y película de una compra existente.
+
+  delete(int id)
+    Elimina la compra con ese ID.
+
+  find(int id)
+    Devuelve una compra por su ID.
+
+  findAll()
+    Devuelve todas las compras.
+
+  findByPelicula(int idPelicula)
+    Devuelve todas las compras de una película concreta.
+    Filtra por la FK ID_PELICULA.
+
+  findConPelicula(int id)
+    Hace JOIN con PELICULAS para devolver la compra junto con
+    el título, director y género de la película comprada.
+
+
+── PATRÓN DE CADA MÉTODO ───────────────────────────────────────────────────
+
+  Todos los métodos siguen exactamente esta estructura:
+
+  try {
+      motorSQL.connect();             // 1. abre conexión
+      motorSQL.prepare(SQL_XXX);      // 2. compila el SQL
+      motorSQL.getPs().setXxx(1, ?);  // 3. rellena los ? (si los hay)
+      motorSQL.executeXxx();          // 4. ejecuta
+      // 5. procesa el resultado (si es SELECT)
+  } catch (Exception e) {
+      printError(e);                  // 6. si hay error, lo imprime
+  } finally {
+      motorSQL.close();               // 7. SIEMPRE cierra (pase lo que pase)
+  }
+
+  El bloque "finally" es clave: se ejecuta SIEMPRE, haya error o no.
+  Así garantizamos que la conexión siempre se cierra.
+
+
+── ¿QUÉ ES UN PreparedStatement Y POR QUÉ ES IMPORTANTE? ──────────────────
+
+  Un PreparedStatement es una sentencia SQL compilada con ? como huecos.
+
+  MAL (con String directo):
+    "SELECT * FROM PELICULAS WHERE TITULO = '" + titulo + "'"
+
+    Si titulo fuera: ' OR '1'='1
+    El SQL quedaría: SELECT * FROM PELICULAS WHERE TITULO = '' OR '1'='1'
+    → devolvería TODAS las películas. Esto se llama SQL INJECTION.
+
+  BIEN (con PreparedStatement):
+    "SELECT * FROM PELICULAS WHERE TITULO = ?"
+    ps.setString(1, titulo)
+
+    El driver trata el valor como un dato, no como parte del SQL.
+    No importa qué contenga titulo: nunca modificará la estructura del SQL.
+    → seguro contra SQL Injection.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  10. CAPA 7 — LOS MAIN (cómo se usa todo)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Los Main son el punto de entrada: desde aquí se ejecuta todo.
+
+
+── Main.java ───────────────────────────────────────────────────────────────
+
+  Demuestra cómo conectarse a la BD y hacer un SELECT usando
+  JDBC directamente, SIN usar el patrón DAO.
+
+  Es el "antes": mezcla la conexión, el SQL y el mapeo en un mismo sitio.
+  Se usa para comparar y ver por qué el patrón DAO es mejor.
+
+
+── Main2.java ──────────────────────────────────────────────────────────────
+
+  Demuestra el uso de PeliculaDAOImpl. El Main no sabe nada de SQL:
+
+    PeliculaDAOImpl peliculaDAO =
+        new PeliculaDAOImpl(MotorFactory.create(MotorFactory.POSTGRE));
+
+    peliculaDAO.add(pelicula);              // INSERT
+    peliculaDAO.findAll();                  // SELECT *
+    peliculaDAO.delete(9);                  // DELETE
+    peliculaDAO.find(2);                    // SELECT por ID
+    peliculaDAO.findDetallePeliculaByPelicula(5);  // JOIN
+
+
+── MainCompras.java ────────────────────────────────────────────────────────
+
+  Igual que Main2 pero para la tabla COMPRAS.
+
+    CompraDAOImpl compraDAO =
+        new CompraDAOImpl(MotorFactory.create(MotorFactory.POSTGRE));
+
+    compraDAO.add(compra);                  // INSERT
+    compraDAO.findAll();                    // SELECT *
+    compraDAO.find(1);                      // SELECT por ID
+    compraDAO.update(1, otraCompra);        // UPDATE
+    compraDAO.findByPelicula(1);            // filtrar por FK
+    compraDAO.findConPelicula(1);           // JOIN con PELICULAS
+    compraDAO.delete(2);                    // DELETE
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  11. FLUJO COMPLETO DE UNA OPERACIÓN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ejemplo: qué pasa exactamente cuando en Main2.java escribes:
+  peliculaDAO.add(pelicula)
+
+  Main2.java
+  └── peliculaDAO.add(pelicula)
+        │
+        └── PeliculaDAOImpl.add(pelicula)
+              │
+              ├── motorSQL.connect()
+              │     └── PostgreMotorSQL.connect()
+              │           ├── Class.forName("org.postgresql.Driver")
+              │           └── DriverManager.getConnection(URL, USER, PASS)
+              │                 └── [abre socket TCP a AWS RDS]
+              │
+              ├── motorSQL.prepare("INSERT INTO PELICULAS (...) VALUES (?,?,?,?,?)")
+              │     └── conn.prepareStatement(sql)
+              │           └── [PostgreSQL compila el SQL]
+              │
+              ├── motorSQL.getPs().setString(1, "300")
+              ├── motorSQL.getPs().setString(2, "Zack Snyder")
+              ├── motorSQL.getPs().setString(3, "Cine Epico")
+              ├── motorSQL.getPs().setInt(4, 2007)
+              ├── motorSQL.getPs().setInt(5, 0)
+              │
+              ├── motorSQL.executeUpdate()
+              │     └── ps.executeUpdate()
+              │           └── [PostgreSQL ejecuta el INSERT y devuelve 1]
+              │
+              ├── System.out.println("INSERTADOS: 1")
+              │
+              └── motorSQL.close()  [finally]
+                    ├── ps.close()
+                    └── conn.close()
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  12. LAS CONSULTAS SQL EXPLICADAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  SELECT * FROM PELICULAS ORDER BY ID
+  ────────────────────────────────────
+  SELECT *          → dame todas las columnas
+  FROM PELICULAS    → de la tabla PELICULAS
+  ORDER BY ID       → ordenado por el campo ID (de menor a mayor)
+
+
+  SELECT * FROM PELICULAS WHERE ID = ?
+  ──────────────────────────────────────
+  WHERE ID = ?      → solo la fila cuyo ID sea el ? que pasemos
+
+
+  INSERT INTO PELICULAS (TITULO, DIRECTOR, GENERO, ANYO, DURACION)
+  VALUES (?, ?, ?, ?, ?)
+  ────────────────────────────────────────────────────────────────
+  Crea una nueva fila. Los 5 ? se rellenan con ps.setXxx().
+  No se especifica ID porque PostgreSQL lo genera solo (SERIAL).
+
+
+  UPDATE PELICULAS SET TITULO=?, DIRECTOR=?, ... WHERE ID=?
+  ──────────────────────────────────────────────────────────
+  Modifica una fila existente. El último ? identifica cuál.
+
+
+  DELETE FROM PELICULAS WHERE ID=?
+  ──────────────────────────────────
+  Elimina la fila con ese ID. CUIDADO: es irreversible.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  13. ¿QUÉ ES UN JOIN?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Un JOIN une dos tablas en una sola consulta cuando tienen una columna
+en común. Sin JOIN, necesitarías dos consultas separadas.
+
+Ejemplo: quieres saber el título de la película de una compra.
+
+  SIN JOIN (dos consultas):
+    1. SELECT ID_PELICULA FROM COMPRAS WHERE ID = 1
+       → devuelve: ID_PELICULA = 3
+    2. SELECT TITULO FROM PELICULAS WHERE ID = 3
+       → devuelve: "Matrix"
+
+  CON JOIN (una sola consulta):
+    SELECT C.ID, C.PRECIO, P.TITULO
+    FROM COMPRAS C
+    INNER JOIN PELICULAS P ON C.ID_PELICULA = P.ID
+    WHERE C.ID = 1
+
+    → devuelve en una fila: [1, 9.99, "Matrix"]
+
+  INNER JOIN solo devuelve filas que tienen coincidencia en AMBAS tablas.
+  Si una compra apuntara a una película que no existe, NO aparecería.
+
+En el proyecto, esto se usa en:
+  findDetallePeliculaByPelicula()  →  une PELICULAS con DETALLE_PELICULAS
+  findConPelicula()                →  une COMPRAS con PELICULAS
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  14. ¿QUÉ ES UNA FOREIGN KEY?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Una Foreign Key (FK) o clave foránea es una columna que apunta al ID
+de otra tabla. Es la forma de relacionar tablas entre sí.
+
+En este proyecto:
+
+  COMPRAS.ID_PELICULA  →  apunta a  →  PELICULAS.ID
+
+  Esto significa: "cada compra pertenece a una película".
+
+  ┌──────────────────────────────┐       ┌──────────────────────────┐
+  │  COMPRAS                     │       │  PELICULAS               │
+  ├────┬──────────────┬──────────┤       ├────┬──────────────────── ┤
+  │ ID │ ID_PELICULA  │ PRECIO   │       │ ID │ TITULO              │
+  ├────┼──────────────┼──────────┤       ├────┼─────────────────────┤
+  │  1 │      3       │   9.99   │──────►│  3 │ Matrix              │
+  │  2 │      1       │  14.99   │──┐    │  1 │ El Padrino          │
+  └────┴──────────────┴──────────┘  └───►│    │                     │
+                                         └────┴─────────────────────┘
+
+  PostgreSQL GARANTIZA que ID_PELICULA siempre apunte a un ID válido.
+  Si intentas insertar una compra con ID_PELICULA = 999 y no existe
+  ninguna película con ID=999, PostgreSQL rechazará el INSERT.
+
+  Eso se llama "integridad referencial": los datos siempre son
+  coherentes, no puede haber una compra huérfana sin película.
+
+  En el código, esto lo gestiona la propia BD. En CompraDAOImpl.add()
+  solo hacemos el INSERT; si la FK es inválida, la excepción nos lo dice.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  15. RESUMEN VISUAL DE LA ARQUITECTURA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  MAIN (Main2.java / MainCompras.java)                           │
+  │  "Quiero añadir una película / buscar todas las compras"        │
+  └────────────────────────────┬────────────────────────────────────┘
+                               │ usa
+  ┌────────────────────────────▼────────────────────────────────────┐
+  │  DAOImpl (PeliculaDAOImpl / CompraDAOImpl)                      │
+  │  Tiene el SQL. Llama al motor para ejecutarlo.                  │
+  └────────────────────────────┬────────────────────────────────────┘
+                               │ usa
+  ┌────────────────────────────▼────────────────────────────────────┐
+  │  MotorSQL (PostgreMotorSQL / MariaDBMotorSQL)                   │
+  │  Abre la conexión, prepara el SQL, lo ejecuta, cierra.         │
+  └────────────────────────────┬────────────────────────────────────┘
+                               │ conecta a
+  ┌────────────────────────────▼────────────────────────────────────┐
+  │  PostgreSQL en AWS RDS                                          │
+  │  database-2.cxhptkfuwfna.us-east-1.rds.amazonaws.com:5432      │
+  │                                                                 │
+  │  Tablas: PELICULAS, DETALLE_PELICULAS, COMPRAS, CLIENTES...     │
+  └─────────────────────────────────────────────────────────────────┘
+
+
+  FLUJO DE DATOS (ejemplo: findAll de películas):
+
+  Main2                 PeliculaDAOImpl          PostgreMotorSQL        AWS RDS
+    │                        │                         │                   │
+    │── findAll() ──────────►│                         │                   │
+    │                        │── connect() ───────────►│                   │
+    │                        │                         │── TCP connect ───►│
+    │                        │── prepare(SQL_FIND_ALL) ►│                   │
+    │                        │── executeQuery() ───────►│── SQL ──────────►│
+    │                        │                         │◄── ResultSet ─────│
+    │                        │◄── ResultSet ───────────│                   │
+    │                        │── mapPelicula() x N      │                   │
+    │                        │── close() ─────────────►│                   │
+    │◄── ArrayList<Pelicula> │                         │                   │
+
+
+  RESUMEN DE ARCHIVOS:
+
+  Archivo                  │ Qué es               │ Para qué sirve
+  ─────────────────────────┼──────────────────────┼──────────────────────
+  DAO.java                 │ Interfaz             │ Define el contrato CRUD
+  AbstractDAO.java         │ Clase abstracta      │ Guarda el motor, herencia
+  MotorSQL.java            │ Clase abstracta      │ Infraestructura JDBC
+  PostgreMotorSQL.java     │ Clase concreta       │ Conexión a PostgreSQL
+  MariaDBMotorSQL.java     │ Clase concreta       │ Conexión a MariaDB
+  MotorFactory.java        │ Clase utilitaria     │ Crea el motor correcto
+  PeliculaDAOImpl.java     │ Clase concreta       │ SQL de PELICULAS
+  CompraDAOImpl.java       │ Clase concreta       │ SQL de COMPRAS
+  Pelicula.java            │ Bean                 │ Representa fila PELICULAS
+  DetallePelicula.java     │ Bean                 │ Representa fila DETALLE_P
+  Compra.java              │ Bean                 │ Representa fila COMPRAS
+  Cliente.java             │ Bean                 │ Representa fila CLIENTES
+  Main.java                │ Punto de entrada     │ Demo JDBC sin DAO
+  Main2.java               │ Punto de entrada     │ Demo con PeliculaDAOImpl
+  MainCompras.java         │ Punto de entrada     │ Demo con CompraDAOImpl
